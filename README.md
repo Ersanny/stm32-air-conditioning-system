@@ -72,7 +72,7 @@ Control 3 LEDs independently using an IR remote control.
 | `GPIOx->CRL/CRH` | Pin mode configuration |
 | `GPIOx->ODR` | Output write / pull direction |
 | `GPIOx->IDR` | Input read |
-| `SysTick` | Microsecond timing for NEC decode |
+| `Loop-based delay` | Microsecond timing for NEC decode |
 
 **NEC Protocol frame structure:**
 ```
