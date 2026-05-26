@@ -1,252 +1,158 @@
-# OLED Display Driver
+# STM32F103 Climate Control Panel — OLED UI
 
-Bare-metal SSD1306 OLED display driver for the **STM32F103C8T6 (Blue Pill)**. Communicates via I2C protocol using direct register access — no HAL, no external libraries.
+A bare-metal climate control interface built on **STM32F103C8T6** ("Blue Pill") driving a **0.96" SSD1306 OLED** over I²C. The project demonstrates a complete, register-level display driver and UI stack — no HAL, no LL, no graphics libraries.
 
----
-
-## 🛠️ Hardware
-
-| Component | Model | Detail |
-|---|---|---|
-| Microcontroller | STM32F103C8T6 (Blue Pill) | ARM Cortex-M3, 8MHz |
-| Display | 0.96" OLED | 128×64 pixels, monochrome |
-| Display Driver | SSD1306 | I2C interface |
-| I2C Address | 0x3C | (8-bit: 0x78) |
-
-**Wiring:**
-
-```
-STM32F103        OLED Module
-─────────        ───────────
-PB6 (SCL) ──── SCL
-PB7 (SDA) ──── SDA
-3.3V      ──── VCC
-GND       ──── GND
-
-Pull-up resistors (mandatory):
-  PB6 ── [4.7kΩ] ── 3.3V
-  PB7 ── [4.7kΩ] ── 3.3V
-```
-
-> ⚠️ I2C requires external pull-up resistors on SCL and SDA lines. Without them, the bus cannot reach HIGH state and communication will fail.
+> Personal project by **[Ersanny](https://github.com/Ersanny)** — built as a hands-on exercise in low-level embedded development, written entirely from scratch.
 
 ---
 
-## 📁 File Structure
+## What this project does
 
-```
-oled-display/
-├── Src/
-│   ├── main.c        # Entry point — display test
-│   ├── i2c.c         # I2C1 hardware driver (register level)
-│   └── ssd1306.c     # SSD1306 OLED driver + 5x8 font table
-└── Inc/
-    ├── i2c.h         # I2C function prototypes
-    └── ssd1306.h     # SSD1306 function prototypes
-```
+The OLED renders a real-time climate control dashboard:
 
----
+- **Large central number** — the set temperature (target)
+- **Bottom-left** — fan speed percentage
+- **Bottom-right** — current room temperature
+- **Top-left icon** — automatically switches between **cooling / heating / standby** based on the difference between set and room temperature
+- **Boot-up animation** — GitHub logo slides in from the left, "Ersanny" text slides in from the right, both rest for 1.5 s, then slide out → main UI starts
 
-## 🏗️ Architecture
-
-The project follows a layered architecture — each layer has a single responsibility:
-
-```
-main.c          →  "What to display"
-    └── ssd1306.c   →  "How to control the OLED"
-          └── i2c.c     →  "How to physically send data"
-                └── STM32 I2C Hardware
-```
-
-This separation means:
-- `i2c.c` knows nothing about OLED — it just sends bytes
-- `ssd1306.c` knows nothing about I2C details — it just calls `I2C_WriteByte()`
-- `main.c` knows nothing about pixels — it just calls `SSD1306_WriteString()`
+Currently the temperature and fan values are hard-coded; the wiring is in place for real sensor and button input to be plugged in.
 
 ---
 
-## 📡 I2C Protocol
+## Hardware
 
-I2C (Inter-Integrated Circuit) is a 2-wire serial communication protocol. Each device on the bus has a unique 7-bit address.
-
-**Message structure:**
-```
-[START] [Address + W] [ACK] [Data byte] [ACK] ... [STOP]
-
-START  → Signal that communication is beginning
-Address → Which device are we talking to? (0x3C for OLED)
-W bit  → 0 = write, 1 = read
-ACK    → Receiver confirms receipt
-STOP   → Communication is complete
-```
-
-**Key registers used:**
-
-| Register | Purpose |
-|---|---|
-| `RCC->APB1ENR` | Enable I2C1 clock (bit 21) |
-| `RCC->APB2ENR` | Enable GPIOB clock (bit 3) |
-| `GPIOB->CRL` | PB6, PB7 → AF Open-Drain, 50MHz |
-| `I2C1->CR2` | Peripheral clock frequency (8MHz) |
-| `I2C1->CCR` | Clock speed (CCR=40 → 100kHz) |
-| `I2C1->TRISE` | Max rise time (TRISE=9 for 100kHz) |
-| `I2C1->CR1` | Enable/disable I2C, START, STOP |
-| `I2C1->DR` | Data register — read/write data |
-| `I2C1->SR1` | Status register — flags (SB, ADDR, TXE, BTF) |
-| `I2C1->SR2` | Status register 2 — used to clear ADDR flag |
-
-**Why Open-Drain GPIO?**
-```
-Push-pull → pin can drive HIGH or LOW actively
-Open-drain → pin can only pull LOW; HIGH requires external pull-up
-
-I2C needs open-drain because multiple devices share the same bus.
-If two devices both try to drive the line simultaneously,
-open-drain prevents short circuits — only pull-down wins.
-```
-
-**Clock speed calculation:**
-```
-Standard Mode I2C: CCR = fPCLK1 / (2 × fI2C)
-CCR = 8,000,000 / (2 × 100,000) = 40
-
-Rise time: TRISE = fPCLK1(MHz) + 1 = 8 + 1 = 9
-```
-
-**Flag polling (no interrupts):**
-```
-After START   → poll SR1 bit 0 (SB flag)   until set
-After address → poll SR1 bit 1 (ADDR flag) until set
-Before data   → poll SR1 bit 7 (TXE flag)  until set
-After data    → poll SR1 bit 2 (BTF flag)  until set
-```
+| Component                | Detail                                       |
+|--------------------------|----------------------------------------------|
+| MCU                      | STM32F103C8T6 (Cortex-M3, 64 KB Flash, 20 KB RAM) |
+| Display                  | SSD1306 0.96" OLED, 128 × 64, I²C            |
+| Clock                    | 8 MHz HSI (no external crystal)              |
+| I²C lines                | PB6 (SCL), PB7 (SDA), 100 kHz                |
+| Programmer               | ST-Link V2 (Keil μVision)                    |
 
 ---
 
-## 🖥️ SSD1306 OLED Driver
+## Architecture
 
-The SSD1306 is the display controller chip embedded inside the OLED module. It manages the 128×64 pixel matrix and accepts commands/data via I2C.
+The codebase is split into three layers, each isolated from the others by a thin API.
 
-**Memory layout:**
 ```
-128 columns × 64 rows = 8192 pixels
-Each pixel = 1 bit (on/off)
-Total = 1024 bytes of display RAM inside SSD1306
-
-Organized as 8 pages × 128 columns:
-  Page 0 → rows 0–7
-  Page 1 → rows 8–15
-  ...
-  Page 7 → rows 56–63
-```
-
-**Control byte:**
-```
-Every I2C message to SSD1306 starts with a control byte:
-  0x00 → next byte is a COMMAND (configures the display)
-  0x40 → next byte is DATA (pixel data written to RAM)
+┌─────────────────────────────────────────────────┐
+│ main.c          ── application loop             │
+│                    SSD1306_DrawUI(set,room,fan) │
+├─────────────────────────────────────────────────┤
+│ ssd1306.c/.h    ── display driver + UI render   │
+│                    frame buffer, fonts, layers  │
+├─────────────────────────────────────────────────┤
+│ i2c.c/.h        ── register-level I²C with      │
+│                    timeout-protected primitives │
+└─────────────────────────────────────────────────┘
 ```
 
-**Sending a command:**
+### Frame buffer rendering
+
+The driver keeps a **1024-byte (8 × 128) RAM mirror** of the screen. Every drawing function writes to RAM only; `SSD1306_Flush()` then transmits the entire buffer in **8 I²C transactions** (one per page).
+
+Why this matters: a naive approach issuing one I²C Start/Stop per byte would need ~1024 transactions per frame. The buffered design is roughly **128× faster** and lets you safely composite multiple layers (background → icon → digits → small text) without flicker.
+
+### Layered UI composition
+
+`SSD1306_DrawUI()` builds the screen as four ordered layers:
+
+1. **Background bitmap** — selected from `ui_sogutma / ui_isitma / ui_bekleme` based on auto-detected mode
+2. **Large digits** — the set temperature, centered
+3. **Bottom-right number** — current room temperature
+4. **Bottom-left number** — fan percentage
+
+Layers are drawn to the buffer in order, then sent to the OLED in a single flush.
+
+### Error propagation chain
+
+Every I²C primitive returns `I2C_Status` (OK or TIMEOUT). The status flows up through the call chain:
+
 ```
-START → 0x3C (address) → ACK → 0x00 (control: command) → ACK → cmd → ACK → STOP
+I2C_WriteByte → SSD1306_Flush → SSD1306_DrawUI → main
 ```
 
-**Sending pixel data:**
-```
-START → 0x3C (address) → ACK → 0x40 (control: data) → ACK → pixel_byte → ACK → STOP
-```
+If the bus hangs (e.g. OLED disconnected), each `while (!flag)` loop bails out after ~10 ms and the failure surfaces all the way to `main()`, which can take recovery action. The MCU never deadlocks waiting on absent hardware.
 
----
+### Auto mode detection
 
-## 🔤 Font System
-
-Characters are rendered using a 5×8 pixel bitmap font stored as a lookup table.
+The application doesn't pass a mode to the driver — `DrawUI` derives it from the inputs:
 
 ```c
-static const uint8_t font[][5] = { ... };
+if      (room_temp > set_temp) mod = COOLING;
+else if (room_temp < set_temp) mod = HEATING;
+else                            mod = STANDBY;
 ```
 
-Each character is 5 bytes wide (5 columns), each byte represents 8 vertical pixels:
+One source of truth, no risk of caller mismatch.
+
+---
+
+## Key functions
+
+| Function                  | Responsibility                                       |
+|---------------------------|------------------------------------------------------|
+| `I2C_Init()`              | Configure GPIOB pins, set I²C1 to 100 kHz standard mode |
+| `I2C_WriteByte()`         | Send one byte with TXE/BTF timeout protection        |
+| `SSD1306_Init()`          | 100 ms power-up delay, then send the 28-command init sequence |
+| `SSD1306_Flush()`         | Push the entire frame buffer in 8 page transactions  |
+| `SSD1306_DrawBigDigit()`  | Render an 18 × 32 px digit into the buffer at (x, page) |
+| `SSD1306_WriteChar()`     | Render a 10 × 12 px digit across two pages           |
+| `SSD1306_DrawUI()`        | Compose the four-layer climate UI and flush          |
+| `SSD1306_Splash()`        | Run the boot animation (slide-in / hold / slide-out) |
+
+---
+
+## Notable design decisions
+
+**100 ms power-up delay in `Init`.** Without it, the SSD1306 sometimes appears 180° rotated after power-on because its charge pump isn't ready when the orientation commands arrive. A 100 ms busy-wait at the top of `SSD1306_Init` fixed it deterministically.
+
+**Two fonts, both repurposed from Adafruit GFX.** Public font generators emit GFX-format data (row-by-row, MSB-packed). The SSD1306 wants column-by-column, page-packed data. A small Python script transposes between the two formats — see `tools/` if reproducing.
+
+**Fonts are digit-only.** Both `fontOS40` (large) and `fontOS16` (small) hold only `0`–`9`. The UI never needs letters at runtime (text on screen comes from pre-rendered bitmaps), so saving Flash by stripping the alphabet was worth it.
+
+**Splash assets are `static`.** `github_logo`, `ersanny_text`, `draw_logo`, `draw_ersanny`, and `splash_delay_ms` are all file-local — they can't leak into other parts of the codebase.
+
+**Boot-up "Reset and Run".** Keil's flash download settings include *Reset and Run* so the chip starts the new code automatically after upload. Without it the MCU sat in an undefined state until manually reset.
+
+---
+
+## Resource footprint
+
+| Resource | Used   | Total | Utilization |
+|----------|--------|-------|-------------|
+| Flash    | ~5.5 KB | 64 KB | ~8.6%       |
+| RAM      | ~1 KB   | 20 KB | ~5%         |
+
+Plenty of headroom for sensors, buttons, an RTOS, persistent storage, or anything else.
+
+---
+
+## Tools used
+
+- **[Keil μVision](https://www.keil.com/)** — IDE, compiler, ST-Link flash & debug
+- **[oleddisplay.squix.ch](https://oleddisplay.squix.ch/)** — Font generation (Adafruit GFX format)
+- **[image2cpp](https://javl.github.io/image2cpp/)** — Bitmap-to-C-array conversion for UI icons and GitHub logo
+- **[piskelapp](https://www.piskelapp.com/p/create/sprite/)** — Custom pixel-art design (logo)
+- **Python** — Custom scripts for GFX → SSD1306 page-format font transposition
+- **STM32F10x reference manual & SSD1306 datasheet** — register- and command-level documentation
+
+---
+
+## File layout
 
 ```
-Example: 'A' = {0x7E, 0x11, 0x11, 0x11, 0x7E}
-
-Column 0: 0x7E = 0 1 1 1 1 1 1 0
-Column 1: 0x11 = 0 0 0 1 0 0 0 1
-Column 2: 0x11 = 0 0 0 1 0 0 0 1
-Column 3: 0x11 = 0 0 0 1 0 0 0 1
-Column 4: 0x7E = 0 1 1 1 1 1 1 0
-
-Rendered:
-. ■ ■ ■ ■ ■ ■ .
-. . . ■ . . . ■
-. . . ■ . . . ■
-. . . ■ . . . ■
-. ■ ■ ■ ■ ■ ■ .
+.
+├── main.c          # Entry point, application loop
+├── i2c.h / i2c.c   # Register-level I²C driver
+├── ssd1306.h       # Public API
+└── ssd1306.c       # Driver: frame buffer, fonts, UI render, splash
 ```
 
-Character index in font table: `index = ASCII_code - 32`
+## License
 
----
+Personal/educational project. Use, fork, and learn from it freely.
 
-## ⚙️ API Reference
-
-### i2c.h
-
-| Function | Description |
-|---|---|
-| `I2C_Init()` | Initialize I2C1 at 100kHz, configure PB6/PB7 |
-| `I2C_Start()` | Generate START condition, wait for SB flag |
-| `I2C_Stop()` | Generate STOP condition |
-| `I2C_WriteAddress(addr)` | Send 7-bit address with write bit, wait for ADDR flag |
-| `I2C_WriteByte(data)` | Send one byte, wait for TXE then BTF flag |
-
-### ssd1306.h
-
-| Function | Description |
-|---|---|
-| `SSD1306_Init()` | Run initialization command sequence, wake display |
-| `SSD1306_Clear()` | Write 0x00 to all 1024 bytes of display RAM |
-| `SSD1306_SetCursor(row, col)` | Set page (0–7) and column (0–127) |
-| `SSD1306_WriteChar(c)` | Render one ASCII character using font table |
-| `SSD1306_WriteString(str)` | Render a null-terminated string |
-
----
-
-## 💻 Development Environment
-
-- **IDE:** Keil MDK (µVision)
-- **Target:** STM32F103C8T6 — ARM Cortex-M3
-- **Programming style:** Bare-metal (direct register access via CMSIS)
-- **Debugger/Programmer:** ST-Link V2
-- **Clock:** 8MHz internal HSI oscillator
-
----
-
-## 🗺️ Roadmap
-
-This module is part of the larger STM32 Air Conditioning System project:
-
-- [x] I2C1 bare-metal driver
-- [x] SSD1306 OLED driver
-- [x] 5×8 ASCII font rendering
-- [ ] LM35 temperature reading via ADC
-- [ ] Display live temperature data
-- [ ] Full AC system integration
-
----
-
-## 📖 References
-
-- [STM32F103 Reference Manual — RM0008](https://www.st.com/resource/en/reference_manual/rm0008-stm32f101xx-stm32f102xx-stm32f103xx-stm32f105xx-and-stm32f107xx-advanced-armbased-32bit-mcus-stmicroelectronics.pdf) — Section 26 (I2C), Section 9 (GPIO)
-- [SSD1306 Datasheet](https://cdn-shop.adafruit.com/datasheets/SSD1306.pdf)
-- *Making Embedded Systems* — Elecia White
-
----
-
-## 👤 Author
-
-**Ersan**  
-Embedded Systems Developer  
-Bare-metal programming on ARM Cortex-M series
+— **Ersanny**
