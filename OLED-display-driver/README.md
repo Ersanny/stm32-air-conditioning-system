@@ -1,4 +1,5 @@
-# STM32F103 Climate Control Panel — OLED UI
+# STM32F103 Air Conditioning System Panel — OLED UI
+- Youtube video: https://www.youtube.com/watch?v=fZP-vNPlWaw
 
 A bare-metal climate control interface built on **STM32F103C8T6** ("Blue Pill") driving a **0.96" SSD1306 OLED** over I²C. The project demonstrates a complete, register-level display driver and UI stack — no HAL, no LL, no graphics libraries.
 
