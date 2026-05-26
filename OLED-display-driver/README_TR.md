@@ -1,4 +1,5 @@
 # STM32F103 Klima Kontrol Paneli — OLED Arayüzü
+- Youtube video: https://www.youtube.com/watch?v=fZP-vNPlWaw
 
 **STM32F103C8T6** ("Blue Pill") üzerinde, **0.96" SSD1306 OLED** ekranı I²C üzerinden süren, bare-metal bir klima kontrol arayüzü. HAL, LL veya hiçbir grafik kütüphanesi kullanılmadan, baştan sona register seviyesinde yazıldı.
 
